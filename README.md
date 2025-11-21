@@ -35,8 +35,8 @@ SimpleAIAPI 让内部系统可以复用现有的 OpenAI 风格接口，而调用
 flowchart LR
   Client[客户端/内部服务] -->|Bearer Token| Gateway[SimpleAIAPI]
   Gateway -->|标准 chat/completions| Upstream[OpenAI 兼容上游]
-  Gateway --> Static[/public/img<br>/public/pages]
-  Gateway --> Data[/data/share-meta<br>/data/protected-images]
+  Gateway --> Static["public/img & public/pages"]
+  Gateway --> Data["data/share-meta & data/protected-images"]
 ```
 
 1. 客户端 POST `/` 或 `/proxy`，附带授权头与扁平化消息。
