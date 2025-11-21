@@ -2,27 +2,29 @@
   "version": "2025-01-01",
   "systemPrompt": "",
   "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem"],
-      "env": {
-        "MCP_SERVER_FILESYSTEM_ROOT": "/app"
-      },
-      "description": "提供对 SimpleAIAPI 项目目录的文件读写能力"
+    "exa": {
+      "command": "bunx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://mcp.exa.ai/mcp"
+      ]
     },
-    "fetch": {
+    "ddg-search": {
       "command": "uvx",
-      "args": ["mcp-server-fetch"],
-      "description": "用于发起受控的 HTTP/HTTPS 请求，便于拉取外部 JSON 或配置"
+      "args": [
+        "duckduckgo-mcp-server"
+      ]
     },
-    "brave-search": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
-      "env": {
-        "BRAVE_API_KEY": "替换为真实的 Brave API Key"
-      },
-      "requires_confirmation": ["search"],
-      "description": "提供 Brave 搜索能力，方便获取公开资料"
+    "mcp-run-python": {
+      "command": "uvx",
+      "args": [
+        "mcp-run-python@latest",
+        "--deps",
+        "numpy,pandas,requests,httpx,beautifulsoup4,python-docx,openpyxl,pillow,openai,anthropic,matplotlib,seaborn,plotly",
+        "stdio"
+      ],
+      "description": "提供 Pyodide 沙盒内的 Python 执行环境，默认使用 stdio 传输，已配置常用 AI 依赖包"
     }
   }
 }

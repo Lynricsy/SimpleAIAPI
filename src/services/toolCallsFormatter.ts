@@ -14,26 +14,33 @@ function formatSingleToolCall(toolCall: OpenAiToolCall, toolResult?: OpenAiToolM
   }
 
   const argsStr = Object.entries(args)
-    .map(([key, value]) => `  - **${key}**: ${JSON.stringify(value)}`)
-    .join('\n');
+    .map(([key, value]) => {
+      const valueStr = JSON.stringify(value, null, 2);
+      return `**${key}**:\n\`\`\`json\n${valueStr}\n\`\`\``;
+    })
+    .join('\n\n');
 
-  let output = `### 🔧 工具调用: \`${toolName}\`\n\n`;
+  let output = `<div class="tool-call-card">\n\n`;
+  output += `### 🔧 工具调用: \`${toolName}\`\n\n`;
 
   // 参数折叠
-  output += `<details>\n<summary><strong>📋 查看参数</strong></summary>\n\n${argsStr}\n\n</details>\n\n`;
+  if (argsStr) {
+    output += `<details class="tool-params">\n<summary>📋 查看参数</summary>\n\n${argsStr}\n\n</details>\n\n`;
+  }
 
-  // 结果折叠
+  // 结果展示
   if (toolResult) {
     const isError =
       toolResult.content.startsWith('[错误]') || toolResult.content.startsWith('[执行失败]');
 
-    if (isError) {
-      output += `<details>\n<summary><strong>❌ 执行失败 - 点击查看详情</strong></summary>\n\n\`\`\`\n${toolResult.content}\n\`\`\`\n\n</details>\n\n`;
-    } else {
-      output += `<details>\n<summary><strong>✅ 执行成功 - 点击查看结果</strong></summary>\n\n\`\`\`\n${toolResult.content}\n\`\`\`\n\n</details>\n\n`;
-    }
+    const statusIcon = isError ? '❌' : '✅';
+    const statusText = isError ? '执行失败' : '执行成功';
+    const statusClass = isError ? 'tool-result-error' : 'tool-result-success';
+
+    output += `<details class="tool-result ${statusClass}" open>\n<summary>${statusIcon} ${statusText} - 点击查看详情</summary>\n\n\`\`\`\n${toolResult.content}\n\`\`\`\n\n</details>\n\n`;
   }
 
+  output += `</div>\n\n`;
   return output;
 }
 
@@ -63,9 +70,7 @@ export function formatToolCallsHistory(
     // 检测assistant消息中的tool_calls
     if ('tool_calls' in message && message.tool_calls && message.tool_calls.length > 0) {
       roundNumber++;
-      if (roundNumber > 1) {
-        output += `---\n\n`;
-      }
+      output += `<div class="tool-round">\n\n`;
       output += `## 🔄 第 ${roundNumber} 轮工具调用\n\n`;
 
       // 遍历所有tool_calls
@@ -80,6 +85,8 @@ export function formatToolCallsHistory(
 
         output += formatSingleToolCall(toolCall, toolResult);
       }
+
+      output += `</div>\n\n`;
     }
   }
 
