@@ -1,0 +1,10 @@
+services:
+  proxy:
+    build: .
+    container_name: SimpleAIAPI
+    ports:
+      - "39731:8080"
+    env_file:
+      - .env
+    volumes:
+      - ./public/img:/app/public/img
