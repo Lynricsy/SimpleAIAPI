@@ -55,11 +55,28 @@ const normalizeMessageValue = (value: unknown): string | null => {
   return null;
 };
 
+const parseToolsFlag = (value: unknown): boolean => {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) {
+      return true;
+    }
+    if (['0', 'false', 'no', 'n', 'off'].includes(normalized)) {
+      return false;
+    }
+  }
+  return false;
+};
+
 export interface ParsedPayload {
   model: string;
   system?: string;
   renderMode: RenderMode;
   messages: ParsedUserMessage[];
+  includeTools: boolean;
 }
 
 export const parseProxyPayload = async (body: RawProxyPayload): Promise<ParsedPayload> => {
@@ -94,6 +111,7 @@ export const parseProxyPayload = async (body: RawProxyPayload): Promise<ParsedPa
     model,
     renderMode,
     messages,
+    includeTools: parseToolsFlag(body.tools),
   };
   if (system) {
     parsed.system = system;

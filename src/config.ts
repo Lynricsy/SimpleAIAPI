@@ -1,4 +1,6 @@
 import dotenv from 'dotenv';
+import type { McpToolDefinition } from './types/mcp';
+import { loadMcpTools } from './utils/mcpLoader';
 
 dotenv.config();
 
@@ -47,6 +49,7 @@ export interface AppConfig {
   imageCleanupIntervalMinutes: number;
   logAssistantResponses: boolean;
   sanitizeHtmlEnabled: boolean;
+  mcpTools: McpToolDefinition[];
 }
 
 const authTokens = toList(process.env.AUTH_TOKENS);
@@ -95,6 +98,7 @@ const cleanupIntervalRaw = toNumber(process.env.IMAGE_CLEANUP_INTERVAL_MINUTES, 
 const imageCleanupIntervalMinutes = cleanupIntervalRaw > 0 ? cleanupIntervalRaw : 60;
 const logAssistantResponses = toBoolean(process.env.LOG_ASSISTANT_RESPONSES, false);
 const sanitizeHtmlEnabled = toBoolean(process.env.SANITIZE_HTML, true);
+const mcpTools = loadMcpTools();
 
 export const config: AppConfig = {
   port: Number(process.env.PORT ?? '8080'),
@@ -106,6 +110,7 @@ export const config: AppConfig = {
   imageCleanupIntervalMinutes,
   logAssistantResponses,
   sanitizeHtmlEnabled,
+  mcpTools,
   ...(process.env.PUBLIC_BASE_URL ? { publicBaseUrl: process.env.PUBLIC_BASE_URL } : {}),
   ...(imageRetentionDays ? { imageRetentionDays } : {}),
   ...optionalNumbers,

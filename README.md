@@ -78,6 +78,7 @@ flowchart LR
 git clone <repo-url>
 cd SimpleAIAPI
 cp .env.example .env           # 根据需求调整配置
+cp MCP.example.json MCP.json   # 准备 MCP 配置，可按需修改
 npm install
 npm run dev                   # 热重载开发模式
 
@@ -90,6 +91,7 @@ npm start
 
 ```bash
 cp .env.example .env
+cp MCP.example.json MCP.json
 docker compose up --build -d
 ```
 
@@ -137,7 +139,8 @@ docker compose up --build -d
   "0": "请帮我规划 3 天北京行程，包含亲子活动",
   "1": "https://example.com/forbidden-city.jpg",
   "2": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
-  "render": "page"
+  "render": "page",
+  "tools": true
 }
 ```
 
@@ -148,6 +151,7 @@ docker compose up --build -d
   - 未传或 `false`：返回纯文本（`text/plain`）。
   - `true` / `"html"` / `"inline"`：返回渲染后的 HTML 片段（`text/html`），包含 Markdown + KaTeX。
   - `"page"` / `"hosted"` / `"url"`：生成托管页面，API 返回可直接分享的 URL。
+- `tools`：是否为请求挂载 `MCP.json` 中声明的工具，默认为 `false`。设置为 `true` 时会把 `MCP` 工具数组透传至上游 `tools` 字段，前提是根目录下存在实际 `MCP.json`（可由 `MCP.example.json` 拷贝而来）。
 
 ### 响应格式
 
@@ -168,6 +172,41 @@ docker compose up --build -d
   - 分享页（含提问记录）位于 `/share/:shareId`，会把图片标记为“保护状态”，避免被周期清理。
 - **元数据持久化**：`data/share-meta/<shareId>.json` 保存页面与图片映射，`protected-images.json` 记录不应被清理的文件名。
 - **自动清理**：`IMAGE_RETENTION_DAYS > 0` 时启动定时任务，按照 `IMAGE_CLEANUP_INTERVAL_MINUTES` 巡检；可通过将保留天数设为 `0` 来彻底关闭，并自行管理磁盘。
+
+## MCP 工具配置
+
+- 仓库附带 `MCP.example.json`，采用 Claude Desktop / VS Code MCP 同款格式，可复制为 `MCP.json` 后再做修改，示例：
+
+```json
+{
+  "version": "2025-01-01",
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+      "env": {
+        "MCP_SERVER_FILESYSTEM_ROOT": "/app"
+      }
+    },
+    "fetch": {
+      "command": "uvx",
+      "args": ["mcp-server-fetch"]
+    },
+    "brave-search": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "替换为真实 API Key"
+      },
+      "requires_confirmation": ["search"]
+    }
+  }
+}
+```
+
+- 如果 `tools` 字段置为 `true`，网关会把 `MCP.json` 中的配置转成 `[{ type: \"mcp\", server_name, server_config }]` 的工具数组并注入上游请求。
+- `docker-compose.yml` 默认把本地 `MCP.json` 以只读方式挂载到容器 `/app/MCP.json`，首次部署前记得 `cp MCP.example.json MCP.json`；其他部署方式也建议在运行目录放置真实配置或卷挂载。
+- 如需禁用 MCP，只要不传 `tools=true` 或者删除/不创建 `MCP.json` 即可，网关会自动忽略缺失的配置。
 
 ## 日志与运维
 

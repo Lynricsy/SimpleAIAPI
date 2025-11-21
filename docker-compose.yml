@@ -8,3 +8,4 @@ services:
       - .env
     volumes:
       - ./public/img:/app/public/img
+      - ./MCP.json:/app/MCP.json:ro

@@ -3,6 +3,7 @@ import { config } from '../config';
 import type { ParsedPayload } from './payloadParser';
 import { buildPublicAssetUrl } from '../utils/urlBuilder';
 import type { ParsedUserMessage } from '../types/payload';
+import type { McpToolDefinition } from '../types/mcp';
 
 export type ChatCompletionContent =
   | string
@@ -24,6 +25,7 @@ export interface ChatCompletionRequest {
   top_p?: number;
   frequency_penalty?: number;
   presence_penalty?: number;
+  tools?: McpToolDefinition[];
 }
 
 const toOpenAiContent = (message: ParsedUserMessage, req: Request): ChatCompletionContent => {
@@ -75,6 +77,9 @@ export const buildChatCompletionRequest = (payload: ParsedPayload, req: Request)
   }
   if (config.presencePenalty !== undefined) {
     request.presence_penalty = config.presencePenalty;
+  }
+  if (payload.includeTools && config.mcpTools.length > 0) {
+    request.tools = config.mcpTools;
   }
 
   return request;

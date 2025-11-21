@@ -1,0 +1,28 @@
+{
+  "version": "2025-01-01",
+  "systemPrompt": "",
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+      "env": {
+        "MCP_SERVER_FILESYSTEM_ROOT": "/app"
+      },
+      "description": "提供对 SimpleAIAPI 项目目录的文件读写能力"
+    },
+    "fetch": {
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
+      "description": "用于发起受控的 HTTP/HTTPS 请求，便于拉取外部 JSON 或配置"
+    },
+    "brave-search": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "替换为真实的 Brave API Key"
+      },
+      "requires_confirmation": ["search"],
+      "description": "提供 Brave 搜索能力，方便获取公开资料"
+    }
+  }
+}

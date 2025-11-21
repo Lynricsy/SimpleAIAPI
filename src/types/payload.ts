@@ -2,6 +2,7 @@ export interface RawProxyPayload {
   model?: string;
   system?: string;
   render?: boolean | string;
+  tools?: boolean | string;
   [key: string]: unknown;
 }
 
