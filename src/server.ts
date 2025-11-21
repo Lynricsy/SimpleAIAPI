@@ -20,6 +20,8 @@ import { ensureKatexFonts } from './utils/katexAssets';
 import { buildQuestionHtml } from './services/questionRenderer';
 import { ensureShareMetadataDirectory, readShareMetadata } from './utils/shareMetadataStore';
 import { markImagesProtected, initProtectedImagesStore } from './utils/protectedImages';
+import { mcpManager } from './mcp/manager';
+import { formatToolCallsHistory, hasToolCalls } from './services/toolCallsFormatter';
 
 const app = express();
 
@@ -32,6 +34,25 @@ const bootstrap = async (): Promise<void> => {
     initProtectedImagesStore(),
   ]);
   scheduleImageCleanup();
+
+  // 初始化MCP管理器
+  logger.info('🔌 正在初始化MCP管理器...');
+  try {
+    await mcpManager.initialize();
+    const stats = mcpManager.getStats();
+    if (stats.healthy > 0) {
+      logger.info('✅ MCP管理器初始化成功', {
+        totalServers: stats.total,
+        healthyServers: stats.healthy,
+        totalTools: stats.toolCount,
+      });
+    }
+  } catch (error) {
+    logger.error('❌ MCP管理器初始化失败', {
+      error: (error as Error).message,
+    });
+    // MCP初始化失败不影响主服务启动
+  }
 
   app.use(express.json({ limit: '100mb' }));
   app.use(requestLogger);
@@ -95,7 +116,19 @@ const bootstrap = async (): Promise<void> => {
         logger.info('📝 AI 原始回复', { content: finalText });
       }
 
-      const htmlContent = renderMarkdownToHtml(finalText);
+      // 如果有工具调用历史，添加到输出中
+      let fullContent = finalText;
+      if (hasToolCalls(upstreamResponse.fullMessages)) {
+        const toolCallsSection = formatToolCallsHistory(upstreamResponse.fullMessages || []);
+        fullContent = `${toolCallsSection}\n---\n\n## 💬 AI 最终回答\n\n${finalText}`;
+
+        logger.info('📊 包含工具调用历史', {
+          conversationRounds: upstreamResponse.conversationRounds,
+          hasToolCalls: true,
+        });
+      }
+
+      const htmlContent = renderMarkdownToHtml(fullContent);
 
       if (parsed.renderMode === 'inline-html') {
         const payload = `${getKatexStyleTag()}${htmlContent}`;
@@ -109,7 +142,8 @@ const bootstrap = async (): Promise<void> => {
         );
         res.type('text/plain; charset=utf-8').send(publishResult.previewUrl);
       } else {
-        res.type('text/plain; charset=utf-8').send(finalText);
+        // 纯文本模式也返回完整内容（包括工具调用历史）
+        res.type('text/plain; charset=utf-8').send(fullContent);
       }
     } catch (error) {
       next(error);
@@ -124,12 +158,54 @@ const bootstrap = async (): Promise<void> => {
     res.status(500).json({ error: error.message });
   });
 
-  app.listen(config.port, () => {
+  const server = app.listen(config.port, () => {
     logger.info('🚀 中转服务启动完成', {
       port: config.port,
       upstream: config.upstreamBaseUrl,
       defaultModel: config.defaultModel,
     });
+  });
+
+  // 优雅关闭处理
+  const shutdown = async (signal: string): Promise<void> => {
+    logger.info(`📡 收到 ${signal} 信号，开始优雅关闭...`);
+
+    // 停止接受新连接
+    server.close(() => {
+      logger.info('✅ HTTP服务器已关闭');
+    });
+
+    try {
+      // 关闭所有MCP服务器
+      await mcpManager.shutdown();
+      logger.info('👋 应用已优雅关闭');
+      process.exit(0);
+    } catch (error) {
+      logger.error('关闭过程中发生错误', {
+        error: (error as Error).message,
+      });
+      process.exit(1);
+    }
+  };
+
+  // 监听关闭信号
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+
+  // 处理未捕获的异常
+  process.on('uncaughtException', (error: Error) => {
+    logger.error('❌ 未捕获的异常', {
+      error: error.message,
+      stack: error.stack,
+    });
+    void shutdown('uncaughtException');
+  });
+
+  process.on('unhandledRejection', (reason: unknown) => {
+    logger.error('❌ 未处理的Promise拒绝', {
+      reason: String(reason),
+    });
+    void shutdown('unhandledRejection');
   });
 };
 

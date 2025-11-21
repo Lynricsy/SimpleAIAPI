@@ -20,13 +20,15 @@ SimpleAIAPI 让内部系统可以复用现有的 OpenAI 风格接口，而调用
 
 ### 核心特性
 
-- 🛡️ **入口鉴权**：验证标准 `Authorization: Bearer xxx` 请求头，可配置多枚入口 Token。
+- 🛡️ **入口鉴权**：验证标准 `Authorization: Bearer xxx` 请求头,可配置多枚入口 Token。
 - 🔁 **多上游轮询**：`UPSTREAM_API_KEYS` 支持多 Key 轮询，减少单 Key 额度耗尽带来的中断。
 - 📨 **消息扁平化**：自动把 `system` + 数字键消息转换成 OpenAI `chat/completions` 标准格式。
 - 🖼️ **富媒体支持**：支持外链图片、Base64 图片写入 `/public/img`，并在转发时生成绝对地址。
 - 🧮 **Markdown + LaTeX 渲染**：内置 markdown-it + KaTeX，可输出纯文本、HTML 片段或托管页面。
 - 🔗 **一键分享**：`render=page` 自动生成分享页面、分享链接与提问记录，方便产品/运营查看。
 - 🧹 **图片生命周期管理**：定期巡检 `public/img`，配合白名单避免分享中的图片被误删。
+- 🔧 **MCP 工具集成**：完整支持 Model Context Protocol，可启动本地/远程 MCP 服务器，实现 AI 工具调用与多轮对话。
+- 📊 **工具调用可视化**：在渲染页面中展示完整的工具调用过程，参数和结果支持折叠/展开。
 - 🧾 **彩色 Emoji 日志**：自定义 Logger 输出，关键步骤全链路可追踪。
 
 ## 架构概览
@@ -37,12 +39,17 @@ flowchart LR
   Gateway -->|标准 chat/completions| Upstream[OpenAI 兼容上游]
   Gateway --> Static["public/img & public/pages"]
   Gateway --> Data["data/share-meta & data/protected-images"]
+  Gateway --> MCP[MCP 服务器集群]
+  MCP -->|stdio/http| Tools[本地/远程工具]
+  Upstream -->|tool_calls| Gateway
+  Gateway -->|执行工具| MCP
 ```
 
 1. 客户端 POST `/` 或 `/proxy`，附带授权头与扁平化消息。
 2. 中转层解析请求、拉取/生成静态资源、调用上游模型。
-3. 根据 `render` 选项返回纯文本、HTML 或托管页面链接，相关图片落地到 `public/img`。
-4. 后台定期清理过期图片，保证磁盘可控。
+3. 上游模型返回 `tool_calls` 时，网关自动执行 MCP 工具并继续多轮对话。
+4. 根据 `render` 选项返回纯文本、HTML 或托管页面链接，相关图片落地到 `public/img`。
+5. 后台定期清理过期图片，保证磁盘可控。
 
 ## 目录结构
 
@@ -51,6 +58,7 @@ flowchart LR
 ├── src
 │   ├── middleware        # request logger、鉴权中间件
 │   ├── services          # payload 解析、消息构建、上游调用、渲染、分享等核心逻辑
+│   ├── mcp               # MCP 客户端、管理器、工具转换等 MCP 相关逻辑
 │   ├── utils             # 静态资源、URL、Katex、元数据、保护列表等工具
 │   └── server.ts         # Express 入口
 ├── public
@@ -59,6 +67,7 @@ flowchart LR
 ├── data
 │   ├── share-meta        # 分享页面元数据
 │   └── protected-images.json
+├── MCP.json              # MCP 服务器配置（需从 MCP.example.json 复制）
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
@@ -70,6 +79,7 @@ flowchart LR
 
 - Node.js 18+（推荐 20 LTS）
 - npm 10+
+- Deno 2.x（仅当需要 `mcp-run-python` 等 Deno/uv 结合的工具；官方 Docker 镜像已预装，Alpine 环境推荐直接 `apk add deno` 以避免 `__res_init` 缺失等兼容性问题）
 - Docker & Docker Compose（可选，用于一键部署）
 
 ### 本地运行
@@ -151,7 +161,12 @@ docker compose up --build -d
   - 未传或 `false`：返回纯文本（`text/plain`）。
   - `true` / `"html"` / `"inline"`：返回渲染后的 HTML 片段（`text/html`），包含 Markdown + KaTeX。
   - `"page"` / `"hosted"` / `"url"`：生成托管页面，API 返回可直接分享的 URL。
-- `tools`：是否为请求挂载 `MCP.json` 中声明的工具，默认为 `false`。设置为 `true` 时会把 `MCP` 工具数组透传至上游 `tools` 字段，前提是根目录下存在实际 `MCP.json`（可由 `MCP.example.json` 拷贝而来）。
+- `tools`：是否启用 MCP 工具调用，默认为 `false`。设置为 `true` 时：
+  - 网关会从 `MCP.json` 加载并启动所有配置的 MCP 服务器
+  - 将可用工具转换为 OpenAI 标准格式注入到请求中
+  - 自动处理上游返回的 `tool_calls`，执行对应的 MCP 工具
+  - 支持多轮对话，直到模型不再请求工具调用为止
+  - 最终返回时会包含完整的工具调用历史（参数、结果均支持折叠展开）
 
 ### 响应格式
 
@@ -175,38 +190,157 @@ docker compose up --build -d
 
 ## MCP 工具配置
 
-- 仓库附带 `MCP.example.json`，采用 Claude Desktop / VS Code MCP 同款格式，可复制为 `MCP.json` 后再做修改，示例：
+SimpleAIAPI 实现了完整的 **Model Context Protocol (MCP)** 客户端，可以启动和管理多个 MCP 服务器，支持本地 stdio 协议和远程 HTTP 协议。
+
+### 配置文件
+
+项目根目录的 `MCP.json` 文件用于配置 MCP 服务器，格式与 Claude Desktop / VS Code MCP 扩展兼容：
 
 ```json
 {
   "version": "2025-01-01",
+  "systemPrompt": "",
   "mcpServers": {
+    "exa": {
+      "command": "bunx",
+      "args": ["-y", "mcp-remote", "https://mcp.exa.ai/mcp"]
+    },
+    "ddg-search": {
+      "command": "uvx",
+      "args": ["duckduckgo-mcp-server"]
+    },
     "filesystem": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
       "env": {
-        "MCP_SERVER_FILESYSTEM_ROOT": "/app"
+        "NODE_ENV": "production"
       }
-    },
-    "fetch": {
-      "command": "uvx",
-      "args": ["mcp-server-fetch"]
-    },
-    "brave-search": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
-      "env": {
-        "BRAVE_API_KEY": "替换为真实 API Key"
-      },
-      "requires_confirmation": ["search"]
     }
   }
 }
 ```
 
-- 如果 `tools` 字段置为 `true`，网关会把 `MCP.json` 中的配置转成 `[{ type: \"mcp\", server_name, server_config }]` 的工具数组并注入上游请求。
-- `docker-compose.yml` 默认把本地 `MCP.json` 以只读方式挂载到容器 `/app/MCP.json`，首次部署前记得 `cp MCP.example.json MCP.json`；其他部署方式也建议在运行目录放置真实配置或卷挂载。
-- 如需禁用 MCP，只要不传 `tools=true` 或者删除/不创建 `MCP.json` 即可，网关会自动忽略缺失的配置。
+### 配置项说明
+
+- **`command`**: MCP 服务器的启动命令（如 `npx`、`uvx`、`bunx`、`python` 等）
+- **`args`**: 命令行参数数组
+- **`env`**: 可选的环境变量对象，会合并到进程环境中
+
+### 支持的运行时
+
+Docker 镜像已内置以下工具链：
+
+- **Node.js**: `npx` / `node`（用于 npm 包管理的 MCP 服务器）
+- **Python**: `uv` / `uvx`（用于 Python MCP 服务器）
+- **Bun**: `bun` / `bunx`（用于高性能 JavaScript/TypeScript 工具）
+
+### 工作流程
+
+1. **服务启动时**：网关读取 `MCP.json`，并行启动所有配置的 MCP 服务器
+2. **工具发现**：通过 MCP 协议的 `tools/list` 获取每个服务器提供的工具列表
+3. **请求处理**：当客户端传入 `tools: true` 时：
+   - 将所有可用工具转换为 OpenAI 标准格式（`function` 类型）
+   - 注入到上游请求的 `tools` 字段
+4. **工具执行**：上游模型返回 `tool_calls` 时：
+   - 根据工具名称找到对应的 MCP 服务器
+   - 通过 MCP 协议的 `tools/call` 执行工具
+   - 将结果封装为 `tool` 角色的消息
+5. **多轮对话**：继续将结果发送给上游，直到模型返回最终答案
+6. **优雅关闭**：收到 `SIGTERM`/`SIGINT` 信号时，依次关闭所有 MCP 服务器
+
+### 本地与远程 MCP
+
+- **本地 stdio MCP**：直接启动子进程，通过标准输入输出通信（如 `@modelcontextprotocol/server-filesystem`）
+- **远程 HTTP MCP**：通过 `mcp-remote` 等代理工具连接到远程 MCP 服务（如 Exa AI）
+- 两种模式使用同一套配置格式，网关会自动处理通信细节
+
+### 示例：常用 MCP 服务器
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+    },
+    "brave-search": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "你的_API_KEY"
+      }
+    },
+    "exa": {
+      "command": "bunx",
+      "args": ["-y", "mcp-remote", "https://mcp.exa.ai/mcp"],
+      "env": {
+        "EXA_API_KEY": "你的_EXA_KEY"
+      }
+    },
+    "ddg": {
+      "command": "uvx",
+      "args": ["duckduckgo-mcp-server"]
+    }
+  }
+}
+```
+
+### Pyodide Python 沙盒（`mcp-run-python`）
+
+[`mcp-run-python`](https://github.com/pydantic/mcp-run-python) 由 Pydantic 团队维护，底层通过 Deno + Pyodide 在 WebAssembly 沙盒中执行 Python 代码，既安全又无需担心依赖污染。要接入 SimpleAIAPI：
+
+1. 安装 `uv`（项目 Docker 镜像已内置），并确保运行环境提供 [Deno](https://deno.com/) ≥ 2.x（自带镜像同样已预装，物理机部署时需手动安装）。
+2. 在 `MCP.json` 中追加如下配置，默认使用 `stdio` 传输模式：
+
+```json
+{
+  "mcpServers": {
+    "mcp-run-python": {
+      "command": "uvx",
+      "args": ["mcp-run-python@latest", "stdio"],
+      "description": "Pyodide 沙盒内执行任意 Python 代码，可自动安装依赖"
+    }
+  }
+}
+```
+
+3. 需要额外安装 Python 第三方包时，可以在 `args` 中添加 `--deps pandas,numpy` 等参数，服务器会自动将依赖下载到隔离的 Deno 环境后再执行代码。
+
+这样配置后，只要在请求体里把 `tools` 设为 `true`，上游模型即可调用 `mcp-run-python` 来执行分析脚本、生成临时数据或做快速验证，非常适合调试数学/数据处理逻辑。
+
+### 首次使用
+
+```bash
+# 复制示例配置
+cp MCP.example.json MCP.json
+
+# 编辑配置，添加你需要的 MCP 服务器和 API Keys
+vim MCP.json
+
+# 启动服务（MCP 服务器会自动启动）
+npm run dev  # 或 docker compose up
+```
+
+### 日志与调试
+
+MCP 相关的日志会带有特定标识：
+
+- `🔌 正在初始化MCP管理器...`：开始加载配置
+- `🚀 正在启动MCP服务器`：启动单个服务器
+- `✅ MCP服务器已就绪`：服务器启动成功，包含工具数量
+- `🔧 调用MCP工具`：执行工具调用
+- `🛑 正在关闭所有MCP服务器...`：优雅关闭
+
+如果某个 MCP 服务器启动失败，网关会记录错误但继续启动其他服务器，不影响主服务运行。
+
+### 注意事项
+
+1. **API Keys**: 敏感的 API Key 建议通过环境变量注入，而不是直接写在 `MCP.json` 中
+2. **Docker 环境**: `docker-compose.yml` 需要将 `MCP.json` 以只读方式挂载到容器
+3. **禁用 MCP**: 如果不需要工具调用功能，可以：
+   - 不创建 `MCP.json` 文件
+   - 或在请求中不传 `tools: true`
+4. **超时设置**: 某些 MCP 服务器（如远程搜索服务）可能需要较长的初始化时间（默认60秒超时）
 
 ## 日志与运维
 

@@ -4,7 +4,7 @@ import { config } from '../config';
 import { markdownItKatex } from './markdownKatex';
 
 const markdown = new MarkdownIt({
-  html: false,
+  html: true,
   linkify: true,
   breaks: true,
 });
@@ -50,6 +50,8 @@ const sanitizeOptions: sanitizeHtml.IOptions = {
         'h3',
         'svg',
         'path',
+        'details',
+        'summary',
         ...latexTags,
       ]),
     ),
@@ -60,6 +62,7 @@ const sanitizeOptions: sanitizeHtml.IOptions = {
     a: ['href', 'title', 'target', 'rel'],
     span: ['class', 'style', 'aria-hidden'],
     div: ['class', 'style', 'aria-hidden'],
+    details: ['open'],
     math: ['xmlns'],
     annotation: ['encoding'],
     svg: [

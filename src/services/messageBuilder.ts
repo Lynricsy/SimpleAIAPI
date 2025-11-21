@@ -3,7 +3,8 @@ import { config } from '../config';
 import type { ParsedPayload } from './payloadParser';
 import { buildPublicAssetUrl } from '../utils/urlBuilder';
 import type { ParsedUserMessage } from '../types/payload';
-import type { McpToolDefinition } from '../types/mcp';
+import type { OpenAiFunction } from '../mcp/types';
+import { getAllMcpToolsAsOpenAiFunctions } from '../mcp/toolConverter';
 
 export type ChatCompletionContent =
   | string
@@ -25,7 +26,7 @@ export interface ChatCompletionRequest {
   top_p?: number;
   frequency_penalty?: number;
   presence_penalty?: number;
-  tools?: McpToolDefinition[];
+  tools?: OpenAiFunction[];
 }
 
 const toOpenAiContent = (message: ParsedUserMessage, req: Request): ChatCompletionContent => {
@@ -78,8 +79,12 @@ export const buildChatCompletionRequest = (payload: ParsedPayload, req: Request)
   if (config.presencePenalty !== undefined) {
     request.presence_penalty = config.presencePenalty;
   }
-  if (payload.includeTools && config.mcpTools.length > 0) {
-    request.tools = config.mcpTools;
+  // 如果请求包含工具调用，从MCP管理器获取所有可用工具
+  if (payload.includeTools) {
+    const mcpTools = getAllMcpToolsAsOpenAiFunctions();
+    if (mcpTools.length > 0) {
+      request.tools = mcpTools;
+    }
   }
 
   return request;

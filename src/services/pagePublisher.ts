@@ -22,9 +22,7 @@ const buildHtmlDocument = (content: string, options: PageOptions): string => {
     : '';
   const shareSection = options.shareLink
     ? `<section class="share-panel">
-        <p>📤 想把这份回答分享给同事吗？点击下方按钮复制专属链接：</p>
-        <button id="copy-share" data-share-link="${options.shareLink}">复制分享链接</button>
-        <p class="share-hint">如果复制失败，可以直接复制：<span class="share-link-text">${options.shareLink}</span></p>
+        <button id="copy-share" data-share-link="${options.shareLink}">📤 复制分享链接</button>
       </section>`
     : '';
   const copyScript = options.shareLink
@@ -48,6 +46,15 @@ const buildHtmlDocument = (content: string, options: PageOptions): string => {
         })();
       </script>`
     : '';
+  const prismScript = `<script>
+    (() => {
+      document.addEventListener('DOMContentLoaded', () => {
+        if (window.Prism) {
+          Prism.highlightAll();
+        }
+      });
+    })();
+  </script>`;
   return `<!DOCTYPE html>
 <html lang="zh-Hans">
   <head>
@@ -55,6 +62,9 @@ const buildHtmlDocument = (content: string, options: PageOptions): string => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${options.pageTitle ?? 'AI 回复预览'}</title>
     ${getKatexStyleTag()}
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
     <style>
       :root {
         color-scheme: light dark;
@@ -129,19 +139,6 @@ const buildHtmlDocument = (content: string, options: PageOptions): string => {
         line-height: 1.8;
         color: var(--bubble-text);
       }
-      .bubble::after {
-        content: '';
-        position: absolute;
-        left: 32px;
-        bottom: -18px;
-        width: 24px;
-        height: 24px;
-        background: inherit;
-        border: inherit;
-        border-top: none;
-        border-left: none;
-        transform: rotate(45deg);
-      }
       .bubble :is(h1, h2, h3, h4) {
         color: var(--bubble-heading);
         margin-top: 1.8rem;
@@ -206,26 +203,23 @@ const buildHtmlDocument = (content: string, options: PageOptions): string => {
       }
       .share-panel {
         margin-top: 1.5rem;
-        padding: 1rem 1.2rem;
-        border-radius: 14px;
-        border: 1px dashed var(--bubble-border);
-        background: rgba(99, 102, 241, 0.05);
+        padding: 0.8rem;
+        text-align: center;
       }
       .share-panel button {
         background: #6366f1;
         border: none;
         color: #fff;
-        padding: 0.6rem 1.2rem;
+        padding: 0.8rem 1.6rem;
         font-size: 1rem;
         border-radius: 10px;
         cursor: pointer;
+        transition: all 0.2s;
       }
       .share-panel button:hover {
-        opacity: 0.9;
-      }
-      .share-link-text {
-        word-break: break-all;
-        font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+        background: #4f46e5;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
       }
       .katex-display {
         overflow-x: auto;
